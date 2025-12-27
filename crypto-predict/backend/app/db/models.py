@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Boolean, Text, JSON, UniqueConstraint, Index, func
+from app.db.session import Base # استيراد القاعدة التي عرفناها في الخطوة 1
 from sqlalchemy.orm import relationship
 from datetime import date
 from app.db.session import Base

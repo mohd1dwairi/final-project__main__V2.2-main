@@ -3,6 +3,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 
+# استيراد أدوات قاعدة البيانات والجدولة
+from app.db.session import engine
+from app.db.models import Base
+from app.workers.scheduler import start_scheduler
+
 settings = get_settings()
 
 app = FastAPI(
@@ -12,14 +17,14 @@ app = FastAPI(
 )
 
 # ========================
-# CORS (تم تصحيحه هنا)
+# CORS 
 # ========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # في التطوير، نسمح للكل بالوصول للمتصفح
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],  # تم تصحيح الاسم هنا من allow_allowed_headers إلى allow_headers
+    allow_headers=["*"], 
 )
 
 # ========================
@@ -33,14 +38,15 @@ app.include_router(sentiment.router, prefix="/api")
 app.include_router(predict.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 
-# ========================
-# Scheduler
-# ========================
-from app.workers.scheduler import start_scheduler
-
 @app.on_event("startup")
 def on_startup():
-    # نشغل الـ Scheduler فقط في العملية الرئيسية
+    """
+    تنفيذ العمليات المطلوبة عند بدء تشغيل السيرفر
+    """
+    # 1. إنشاء الجداول تلقائياً إذا لم تكن موجودة
+    Base.metadata.create_all(bind=engine)
+    
+    # 2. تشغيل الـ Scheduler لجلب البيانات (مع التحقق لتجنب التكرار)
     if os.getenv("RUN_MAIN") == "true" or os.getenv("TESTING") != "true":
         start_scheduler()
 

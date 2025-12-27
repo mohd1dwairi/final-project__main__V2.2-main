@@ -1,21 +1,20 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from app.core.config import get_settings
 
-# 🔹 تحميل الإعدادات من config.py
 settings = get_settings()
 
-# 🔹 إنشاء محرك الاتصال بقاعدة البيانات
-engine = create_engine(settings.DATABASE_URL, echo=True)
+# إنشاء محرك قاعدة البيانات باستخدام الرابط من ملف .env
+engine = create_engine(settings.DATABASE_URL)
 
-# 🔹 إنشاء جلسة اتصال SessionLocal
+# إنشاء جلسة للتعامل مع البيانات
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 🔹 تعريف Base class التي ستُستخدم لاحقًا في models.py
+# التعريف الأساسي للجداول (Base) الذي سنرث منه في الموديلات
 Base = declarative_base()
 
-
-# 🔹 دالة للحصول على جلسة جديدة في أي مكان داخل المشروع
+# دالة للحصول على الجلسة (Dependency)
 def get_db():
     db = SessionLocal()
     try:
