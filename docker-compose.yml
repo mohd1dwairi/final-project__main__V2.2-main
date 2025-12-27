@@ -1,0 +1,46 @@
+services:
+  postgres:  # تبدأ بمسافتين
+    image: postgres:16
+    container_name: crypto_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: crypto_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d crypto_db || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:  # تبدأ بمسافتين
+    image: redis:alpine
+    container_name: crypto_redis
+
+  backend:  # تبدأ بمسافتين
+    build:
+      context: ./crypto-predict/backend
+      dockerfile: backend.Dockerfile
+    container_name: crypto_backend
+    env_file:
+      - ./crypto-predict/backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./crypto-predict/backend:/app
+
+  frontend:  # كانت هنا المشكلة، يجب أن تكون بمسافتين تحت services
+    build:
+      context: ./crypto-predict-frontend-main
+    container_name: crypto_frontend
+    ports:
+      - "3000:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./crypto-predict-frontend-main:/app
+      - /app/node_modules # لحماية مكتبات Vite

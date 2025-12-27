@@ -1,0 +1,16 @@
+[
+  "open",
+  "high",
+  "low",
+  "close",
+  "volume",
+  "sent_count",
+  "avg_sentiment",
+  "pos_count",
+  "neg_count",
+  "neu_count",
+  "pos_ratio",
+  "neg_ratio",
+  "neu_ratio",
+  "has_news"
+]

@@ -1,0 +1,25 @@
+{
+  "seq_len": 48,
+  "horizon_hours": 4,
+  "feature_cols": [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "sent_count",
+    "avg_sentiment",
+    "pos_count",
+    "neg_count",
+    "neu_count",
+    "pos_ratio",
+    "neg_ratio",
+    "neu_ratio",
+    "has_news"
+  ],
+  "n_features": 14,
+  "hidden_size": 64,
+  "num_layers": 2,
+  "dropout": 0.2,
+  "threshold": 0.5
+}
