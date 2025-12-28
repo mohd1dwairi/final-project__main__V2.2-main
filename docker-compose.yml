@@ -1,5 +1,5 @@
 services:
-  postgres:  # تبدأ بمسافتين
+  postgres:
     image: postgres:16
     container_name: crypto_postgres
     environment:
@@ -8,17 +8,21 @@ services:
       POSTGRES_DB: crypto_db
     ports:
       - "5432:5432"
+    # --- التعديل المضاف هنا لحفظ البيانات ---
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    # ---------------------------------------
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d crypto_db || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  redis:  # تبدأ بمسافتين
+  redis:
     image: redis:alpine
     container_name: crypto_redis
 
-  backend:  # تبدأ بمسافتين
+  backend:
     build:
       context: ./crypto-predict/backend
       dockerfile: backend.Dockerfile
@@ -33,7 +37,7 @@ services:
     volumes:
       - ./crypto-predict/backend:/app
 
-  frontend:  # كانت هنا المشكلة، يجب أن تكون بمسافتين تحت services
+  frontend:
     build:
       context: ./crypto-predict-frontend-main
     container_name: crypto_frontend
@@ -43,4 +47,4 @@ services:
       - backend
     volumes:
       - ./crypto-predict-frontend-main:/app
-      - /app/node_modules # لحماية مكتبات Vite
+      - /app/node_modules

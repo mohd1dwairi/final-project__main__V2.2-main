@@ -32,7 +32,8 @@ export default function Login() {
       });
 
       // تخزين التوكن
-      localStorage.setItem("user_token", data.access_token);
+      localStorage.setItem("user_token", data.access_token);     // تخزين التوكن
+      localStorage.setItem("username", data.username || "User");       // تخزين اسم المستخدم
 
       // الانتقال للداشبورد
       navigate("/dashboard");

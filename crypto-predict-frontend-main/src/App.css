@@ -40,3 +40,19 @@
 .read-the-docs {
   color: #888;
 }
+
+.logout-btn {
+  background-color: #ff4d4d;
+  color: white;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-left: 15px;
+  font-size: 14px;
+  transition: 0.3s;
+}
+
+.logout-btn:hover {
+  background-color: #ff1a1a;
+}
