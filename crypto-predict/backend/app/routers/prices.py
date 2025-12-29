@@ -1,52 +1,58 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert # استيراد هام جداً لمعالجة التكرار
+import pandas as pd
+import io
 from app.db.session import get_db
-from app.schemas.candle_schema import CandleResponse
-from app.core.security import get_current_user
-from app.services.prices_service import fetch_prices_from_api
 from app.db import models
 
 router = APIRouter(prefix="/prices", tags=["Prices"])
 
-# جلب بيانات الشموع (UC-05 & UC-06)
-@router.get("/{symbol}", response_model=list[CandleResponse])
-def get_prices(
-    symbol: str,
-    timeframe: str = "1h", # الافتراضي ساعة واحدة كما في التقرير
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user) # شرط تسجيل الدخول (صفحة 6)
+@router.post("/upload-csv")
+async def upload_candles_csv(
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db)
 ):
-    """
-    جلب بيانات OHLCV حقيقية من Binance وتخزينها/عرضها (UC-06)
-    """
-    # 1. البحث عن معرف العملة (asset_id) في القاعدة بناءً على الرمز
-    asset = db.query(models.CryptoAsset).filter(models.CryptoAsset.symbol == symbol.upper()).first()
-    if not asset:
-        raise HTTPException(status_code=404, detail="العملة غير موجودة في النظام")
-
-    # 2. البحث عن معرف الإطار الزمني (timeframe_id)
-    tf = db.query(models.Timeframe).filter(models.Timeframe.code == timeframe).first()
-    if not tf:
-        raise HTTPException(status_code=400, detail="إطار زمني غير مدعوم")
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="يرجى رفع ملف بصيغة CSV فقط")
 
     try:
-        # 3. جلب البيانات من Binance وتحديث القاعدة (UC-06)
-        fetch_prices_from_api(
-            asset_id=asset.asset_id, 
-            symbol=symbol, 
-            timeframe_id=tf.timeframe_id, 
-            timeframe_code=timeframe, 
-            db=db
-        )
+        content = await file.read()
+        df = pd.read_csv(io.BytesIO(content))
 
-        # 4. جلب البيانات المخزنة من جدول OHLCV_Candle (صفحة 14) لإرسالها للرسم البياني
-        candles = db.query(models.OHLCV_Candle).filter(
-            models.OHLCV_Candle.asset_id == asset.asset_id,
-            models.OHLCV_Candle.timeframe_id == tf.timeframe_id
-        ).order_by(models.OHLCV_Candle.timestamp.desc()).limit(100).all()
+        # 1. توحيد أسماء الأعمدة
+        if 'open_time' in df.columns:
+            df = df.rename(columns={'open_time': 'timestamp'})
+        
+        # تحويل التوقيت لصيغة صحيحة
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-        return candles
+        success_count = 0
+        for _, row in df.iterrows():
+            # 2. بناء استعلام إدخال متطور (PostgreSQL Upsert)
+            stmt = insert(models.Candle).values(
+                asset=str(row['symbol']).lower(),
+                timestamp=row['timestamp'],
+                open=float(row['open']),
+                high=float(row['high']),
+                low=float(row['low']),
+                close=float(row['close']),
+                volume=float(row['volume']),
+                exchange="binance"
+            )
+
+            # 3. الحل الجذري: إذا حدث تكرار في (asset, exchange, timestamp) لا تفعل شيئاً (تجاهل الخطأ)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=['asset', 'exchange', 'timestamp']
+            )
+            
+            result = db.execute(stmt)
+            if result.rowcount > 0: # إذا تم الإدخال فعلياً (وليس تجاهله)
+                success_count += 1
+        
+        db.commit()
+        return {"status": "success", "message": f"تمت معالجة الملف بنجاح. تم إدخال {success_count} سجل جديد وتجاهل المكرر."}
 
     except Exception as e:
-        # الاستثناء EX1 (صفحة 7): فشل جلب البيانات
-        raise HTTPException(status_code=500, detail="Data temporarily unavailable")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"خطأ تقني: {str(e)}")
