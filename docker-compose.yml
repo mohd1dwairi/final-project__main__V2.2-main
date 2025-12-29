@@ -10,7 +10,9 @@ services:
       - "5432:5432"
     # --- التعديل المضاف هنا لحفظ البيانات ---
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - ./postgres_data:/var/lib/postgresql/data  #النتيجة: حتى لو قمت بحذف الحاوية (Container)، أو أطفأت جهازك، أو حتى حذفت Docker نفسه، فإن بيانات المستخدمين وأسعار
+      # العملات ستظل مخزنة في مجلد postgres_data الموجود بجانب كود المشروع
+      
     # ---------------------------------------
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d crypto_db || exit 1"]
