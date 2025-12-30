@@ -9,17 +9,18 @@ export default function Dashboard() {
   const [stats, setStats] = useState([]);
   const [showPrediction, setShowPrediction] = useState(false);
 
-  // جلب إحصائيات البطاقات العلوية
+  // جلب إحصائيات البطاقات العلوية لجميع العملات عند تشغيل الصفحة
   useEffect(() => {
     api.get("/prices/top-assets").then(res => setStats(res.data));
   }, []);
 
-  // جلب التاريخ عند تغيير العملة
+  // جلب تاريخ الأسعار (الشمعات) فور تغيير العملة المختارة
   useEffect(() => {
     api.get(`/prices/${selectedCoin}`).then(res => setHistory(res.data));
-    setShowPrediction(false); // إخفاء التوقع القديم
+    setShowPrediction(false); // إخفاء جدول التوقعات عند الانتقال لعملة أخرى
   }, [selectedCoin]);
 
+  // دالة التعامل مع ضغط زر التوقع
   const handlePredictClick = async () => {
     const res = await api.get(`/prices/predict/${selectedCoin}`);
     setPredictions(res.data);
@@ -30,33 +31,45 @@ export default function Dashboard() {
     <div style={{ padding: '20px', color: 'white', background: '#0a0a0a', minHeight: '100vh' }}>
       <h2>لوحة تحكم التداول الذكي (CIS Project)</h2>
       
-      {/* البطاقات العلوية */}
+      {/* قسم البطاقات العلوية */}
       <div style={{ display: 'flex', gap: '15px', marginBottom: '30px' }}>
         {stats.map(s => (
           <div key={s.id} style={{ background: '#1a1a1a', padding: '15px', borderRadius: '8px', flex: 1, borderLeft: '4px solid #3b82f6' }}>
             <span style={{ fontSize: '12px', color: '#888' }}>{s.name}</span>
-            <div style={{ fontSize: '18px', fontWeight: 'bold' }}>${s.price.toLocaleString()}</div>
+            <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+              ${s.price ? s.price.toLocaleString() : "0.00"}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* أدوات التحكم */}
+      {/* أدوات التحكم: اختيار العملة وزر التوقع */}
       <div style={{ marginBottom: '20px', display: 'flex', gap: '15px' }}>
-        <select value={selectedCoin} onChange={(e) => setSelectedCoin(e.target.value)} style={{ padding: '10px', background: '#222', color: 'white', border: '1px solid #444' }}>
+        <select 
+          value={selectedCoin} 
+          onChange={(e) => setSelectedCoin(e.target.value)} 
+          style={{ padding: '10px', background: '#222', color: 'white', border: '1px solid #444' }}
+        >
           <option value="BTC">Bitcoin (BTC)</option>
           <option value="ETH">Ethereum (ETH)</option>
           <option value="BNB">Binance (BNB)</option>
           <option value="SOL">Solana (SOL)</option>
+          {/* إضافة عملة Dogecoin هنا - القيمة dog ستطابق ما في قاعدة البيانات */}
+          <option value="DOG">Dogecoin (DOG)</option>
         </select>
-        <button onClick={handlePredictClick} style={{ padding: '10px 20px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
+
+        <button 
+          onClick={handlePredictClick} 
+          style={{ padding: '10px 20px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
+        >
            بدء توقع الذكاء الاصطناعي 🚀
         </button>
       </div>
 
-      {/* الرسم البياني (الشمعات) */}
+      {/* مكون الرسم البياني: سيعرض شمعات العملة المختارة مع خط التوقع */}
       <PriceChart historyData={history} predictionData={predictions} showPrediction={showPrediction} />
 
-      {/* جدول نتائج التوقع */}
+      {/* جدول نتائج التوقع: يظهر فقط بعد ضغط زر التوقع */}
       {showPrediction && (
         <div style={{ marginTop: '30px', background: '#111', padding: '20px', borderRadius: '10px' }}>
           <h3>📋 نتائج التوقع لعملة {selectedCoin}</h3>
