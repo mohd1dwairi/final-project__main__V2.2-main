@@ -2,90 +2,86 @@ import React, { useState, useEffect } from "react";
 import PriceChart from "../components/charts/PriceChart.jsx";
 import api from "../services/api";
 
-const COINS = [
-  { id: "BTC", label: "Bitcoin (BTC)" },
-  { id: "ETH", label: "Ethereum (ETH)" },
-  { id: "SOL", label: "Solana (SOL)" },
-];
-
 export default function Dashboard() {
   const [selectedCoin, setSelectedCoin] = useState("BTC");
+  const [history, setHistory] = useState([]);
+  const [predictions, setPredictions] = useState([]);
   const [stats, setStats] = useState([]);
-  const [sentiment, setSentiment] = useState({ score: 0, label: "Neutral" });
-  const [loading, setLoading] = useState(true);
+  const [showPrediction, setShowPrediction] = useState(false);
 
-  // 1. جلب بيانات السوق والمشاعر معاً (UC-03 & UC-09)
+  // جلب إحصائيات البطاقات العلوية
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      setLoading(true);
-      try {
-        // جلب أسعار العملات (Top Assets)
-        const statsRes = await api.get("/prices/top-assets");
-        setStats(statsRes.data);
+    api.get("/prices/top-assets").then(res => setStats(res.data));
+  }, []);
 
-        // جلب تحليل المشاعر من نموذج BERT (UC-10)
-        const sentimentRes = await api.get(`/sentiment/${selectedCoin}`);
-        const labels = { "1": "Positive", "0": "Neutral", "-1": "Negative" };
-        setSentiment({ 
-          score: sentimentRes.data.score, 
-          label: labels[sentimentRes.data.score] || "Neutral" 
-        });
-
-      } catch (err) {
-        console.error("Dashboard data error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchDashboardData();
+  // جلب التاريخ عند تغيير العملة
+  useEffect(() => {
+    api.get(`/prices/${selectedCoin}`).then(res => setHistory(res.data));
+    setShowPrediction(false); // إخفاء التوقع القديم
   }, [selectedCoin]);
 
-  if (loading) return <div className="loading">Updating Market Insights...</div>;
+  const handlePredictClick = async () => {
+    const res = await api.get(`/prices/predict/${selectedCoin}`);
+    setPredictions(res.data);
+    setShowPrediction(true);
+  };
 
   return (
-    <div className="dashboard">
-      <header className="dashboard-header">
-        <h1>Market Overview</h1>
-        <p>Real-time analytics and AI-driven sentiment analysis.</p>
-      </header>
-
-      {/* --- قسم البطاقات العلوية (تم نقل المشاعر هنا) --- */}
-      <section className="dashboard-section">
-        <div className="stats-grid">
-          {/* بطاقة المشاعر (BERT Model Result) - صفحة 8 في التقرير */}
-          <article className={`stat-card sentiment-highlight ${sentiment.label.toLowerCase()}`}>
-            <h3 className="stat-name">Market Mood (BERT)</h3>
-            <p className="sentiment-label">{sentiment.label}</p>
-            <div className="sentiment-bar">
-               <span className="score-text">Score: {sentiment.score}</span>
-            </div>
-          </article>
-
-          {/* بطاقات العملات الحقيقية */}
-          {stats.map((item) => (
-            <article key={item.id} className="stat-card">
-              <h3 className="stat-name">{item.name}</h3>
-              <p className="stat-price">${item.price.toLocaleString()}</p>
-              <p className={item.change >= 0 ? "stat-change-up" : "stat-change-down"}>
-                {item.change >= 0 ? "▲" : "▼"} {item.change}%
-              </p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {/* قسم الرسم البياني - UC-05 */}
-      <section className="dashboard-section">
-        <div className="chart-header">
-          <h2 className="section-title">Price Prediction (LSTM + XGBoost)</h2>
-          <div className="chart-controls">
-            <select value={selectedCoin} onChange={(e) => setSelectedCoin(e.target.value)}>
-              {COINS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
+    <div style={{ padding: '20px', color: 'white', background: '#0a0a0a', minHeight: '100vh' }}>
+      <h2>لوحة تحكم التداول الذكي (CIS Project)</h2>
+      
+      {/* البطاقات العلوية */}
+      <div style={{ display: 'flex', gap: '15px', marginBottom: '30px' }}>
+        {stats.map(s => (
+          <div key={s.id} style={{ background: '#1a1a1a', padding: '15px', borderRadius: '8px', flex: 1, borderLeft: '4px solid #3b82f6' }}>
+            <span style={{ fontSize: '12px', color: '#888' }}>{s.name}</span>
+            <div style={{ fontSize: '18px', fontWeight: 'bold' }}>${s.price.toLocaleString()}</div>
           </div>
+        ))}
+      </div>
+
+      {/* أدوات التحكم */}
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '15px' }}>
+        <select value={selectedCoin} onChange={(e) => setSelectedCoin(e.target.value)} style={{ padding: '10px', background: '#222', color: 'white', border: '1px solid #444' }}>
+          <option value="BTC">Bitcoin (BTC)</option>
+          <option value="ETH">Ethereum (ETH)</option>
+          <option value="BNB">Binance (BNB)</option>
+          <option value="SOL">Solana (SOL)</option>
+        </select>
+        <button onClick={handlePredictClick} style={{ padding: '10px 20px', background: '#22c55e', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
+           بدء توقع الذكاء الاصطناعي 🚀
+        </button>
+      </div>
+
+      {/* الرسم البياني (الشمعات) */}
+      <PriceChart historyData={history} predictionData={predictions} showPrediction={showPrediction} />
+
+      {/* جدول نتائج التوقع */}
+      {showPrediction && (
+        <div style={{ marginTop: '30px', background: '#111', padding: '20px', borderRadius: '10px' }}>
+          <h3>📋 نتائج التوقع لعملة {selectedCoin}</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+            <thead>
+              <tr style={{ color: '#888', textAlign: 'left', borderBottom: '1px solid #333' }}>
+                <th style={{ padding: '10px' }}>الوقت المتوقع</th>
+                <th style={{ padding: '10px' }}>السعر المتوقع</th>
+                <th style={{ padding: '10px' }}>الاتجاه</th>
+                <th style={{ padding: '10px' }}>الثقة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {predictions.map((p, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #222' }}>
+                  <td style={{ padding: '10px' }}>{new Date(p.timestamp).toLocaleTimeString()}</td>
+                  <td style={{ padding: '10px', color: '#22c55e' }}>${p.predicted_value}</td>
+                  <td style={{ padding: '10px' }}>{p.trend === 'Up' ? '🟢 صعود' : '🟡 مستقر'}</td>
+                  <td style={{ padding: '10px' }}>{p.confidence}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <PriceChart coin={selectedCoin} range="1h" />
-      </section>
+      )}
     </div>
   );
 }
