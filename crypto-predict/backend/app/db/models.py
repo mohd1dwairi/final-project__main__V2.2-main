@@ -19,10 +19,10 @@ class User(Base):
 class Candle(Base):
     __tablename__ = "candle_ohlcv"
 
-    id = Column(Integer, primary_key=True)
-    asset = Column(String(20), nullable=False)
+    iid = Column(Integer, primary_key=True)
+    asset = Column(String(20), nullable=False) # هذا هو الـ symbol في ملفك
     exchange = Column(String(30), default="binance")
-    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True) # هذا هو الـ open_time
     open = Column(Float, nullable=False)
     high = Column(Float, nullable=False)
     low = Column(Float, nullable=False)
