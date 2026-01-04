@@ -58,12 +58,16 @@ def get_top_assets(db: Session = Depends(get_db)):
 # مسار الشمعات التاريخية (لعرض الرسم البياني التاريخي OHLC)
 @router.get("/{symbol}")
 def get_historical_ohlcv(symbol: str, db: Session = Depends(get_db)):
+    # تحويل الرمز إلى حروف صغيرة لضمان المطابقة مع قاعدة البيانات
+    target_asset = symbol.lower()
+    
     data = db.query(models.Candle).filter(
-        models.Candle.asset == symbol.lower()
-    ).order_by(models.Candle.timestamp.desc()).limit(100).all()
+        models.Candle.asset == target_asset
+    ).order_by(models.Candle.timestamp.desc()).limit(150).all()
     
     if not data:
-        raise HTTPException(status_code=404, detail="العملة غير موجودة في قاعدة البيانات")
+        # رسالة خطأ واضحة في حال عدم وجود بيانات للعملة المحددة
+        raise HTTPException(status_code=404, detail=f"No data found for {symbol} in candle_ohlcv table.")
 
     return sorted([
         {
@@ -121,19 +125,23 @@ def add_market_data(data: MarketDataInput, db: Session = Depends(get_db)):
 @router.get("/predict/{symbol}")
 def get_ai_prediction(symbol: str, db: Session = Depends(get_db)):
     try:
+        # تحويل الرمز لضمان التطابق
+        target_asset = symbol.lower()
+
         # جلب آخر 48 ساعة من البيانات المدمجة (Join سريع)
+        # ملاحظة: إذا لم تظهر نتائج، تأكد أن العملة تملك سجلات في جدولي الشموع والمشاعر معاً
         query_results = db.query(models.Candle, models.Sentiment).join(
             models.Sentiment, 
             (models.Candle.asset == models.Sentiment.asset) & 
             (models.Candle.timestamp == models.Sentiment.timestamp)
         ).filter(
-            models.Candle.asset == symbol.lower()
+            models.Candle.asset == target_asset
         ).order_by(models.Candle.timestamp.desc()).limit(48).all()
 
         if len(query_results) < 48:
             raise HTTPException(
                 status_code=400, 
-                detail=f"بيانات غير كافية لـ {symbol}. نحتاج 48 ساعة مدمجة (سعر + مشاعر) لإجراء التوقع."
+                detail=f"Incomplete data for {symbol}. Needs 48 hours of both Price and Sentiment data."
             )
 
         # تجهيز البيانات للموديل
