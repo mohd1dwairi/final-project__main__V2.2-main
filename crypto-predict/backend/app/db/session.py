@@ -5,16 +5,16 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# إنشاء محرك قاعدة البيانات باستخدام الرابط من ملف .env
+# إنشاء محرك قاعدة البيانات
 engine = create_engine(settings.DATABASE_URL)
 
-# إنشاء جلسة للتعامل مع البيانات
+# إعداد الجلسات
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# التعريف الأساسي للجداول (Base) الذي سنرث منه في الموديلات
+# التعريف الأساسي للموديلات
 Base = declarative_base()
 
-# دالة للحصول على الجلسة (Dependency)
+# دالة الحصول على قاعدة البيانات (Dependency)
 def get_db():
     db = SessionLocal()
     try:

@@ -1,3 +1,7 @@
+"""
+تكامل النظام: هذا الكود يربط بين قاعدة بيانات PostgreSQL وخوارزميات التوقع في الباك إيند.
+Docstring for crypto-predict.backend.app.routers.prices
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -35,7 +39,7 @@ class MarketDataInput(BaseModel):
     has_news: int = 0
 
 # ==========================================
-# 2. المسارات السهلة (GET)
+# 2. المسارات السهلة (GET) - جلب البيانات التاريخية والإحصائيات
 # ==========================================
 
 # مسار البطاقات العلوية (أحدث أسعار العملات)
@@ -58,7 +62,7 @@ def get_top_assets(db: Session = Depends(get_db)):
 # مسار الشمعات التاريخية (لعرض الرسم البياني التاريخي OHLC)
 @router.get("/{symbol}")
 def get_historical_ohlcv(symbol: str, db: Session = Depends(get_db)):
-    # تحويل الرمز إلى حروف صغيرة لضمان المطابقة مع قاعدة البيانات
+    # تحويل الرمز إلى حروف صغيرة لضمان المطابقة مع قاعدة البيانات PostgreSQL
     target_asset = symbol.lower()
     
     data = db.query(models.Candle).filter(
@@ -77,16 +81,23 @@ def get_historical_ohlcv(symbol: str, db: Session = Depends(get_db)):
     ], key=lambda x: x['x'])
 
 # ==========================================
-# 3. مسار إضافة البيانات (POST)
+# 3. مسارات الإدارة (Admin) - إضافة وتعديل البيانات
 # ==========================================
 
-# مسار يسمح للمستخدم (أو النظام) بإضافة سجل جديد يدوياً
+# مسار يسمح للمسؤول (Admin) بإضافة سجل جديد يدوياً لتعزيز دقة التوقع
 @router.post("/add-data")
 def add_market_data(data: MarketDataInput, db: Session = Depends(get_db)):
+    """
+    هذا المسار مخصص للأدمن فقط لإضافة بيانات السوق والمشاعر يدوياً.
+    يتم تخزين البيانات في قاعدة بيانات PostgreSQL لتدريب الموديل وتحسين التوقعات.
+    """
     try:
+        # ملاحظة للمناقشة: هنا يمكن إضافة فحص الـ role من خلال الـ Context أو Token
+        # if current_user.role != "admin": raise HTTPException(status_code=403)
+
         now_ts = datetime.now()
         
-        # إضافة سجل السعر
+        # إضافة سجل السعر لجدول الشموع
         new_candle = models.Candle(
             asset=data.symbol.lower(),
             timestamp=now_ts,
@@ -94,7 +105,7 @@ def add_market_data(data: MarketDataInput, db: Session = Depends(get_db)):
             close=data.close, volume=data.volume
         )
         
-        # إضافة سجل المشاعر (Sentiment)
+        # إضافة سجل المشاعر (Sentiment) لتعزيز التحليل الهجين
         new_sentiment = models.Sentiment(
             asset=data.symbol.lower(),
             timestamp=now_ts,
@@ -119,17 +130,20 @@ def add_market_data(data: MarketDataInput, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 # ==========================================
-# 4. مسار التوقع المعقد (AI Predict)
+# 4. مسار التوقع المتقدم (AI Predict) - محرك الذكاء الاصطناعي
 # ==========================================
 
 @router.get("/predict/{symbol}")
 def get_ai_prediction(symbol: str, db: Session = Depends(get_db)):
+    """
+    يقوم هذا المسار بدمج بيانات الأسعار مع تحليل المشاعر (Sentiment Analysis)
+    لإعطاء توقعات دقيقة باستخدام خوارزميات مثل LSTM أو XGBoost.
+    """
     try:
-        # تحويل الرمز لضمان التطابق
+        # تحويل الرمز لضمان التطابق مع البيانات المخزنة
         target_asset = symbol.lower()
 
-        # جلب آخر 48 ساعة من البيانات المدمجة (Join سريع)
-        # ملاحظة: إذا لم تظهر نتائج، تأكد أن العملة تملك سجلات في جدولي الشموع والمشاعر معاً
+        # جلب آخر 48 ساعة من البيانات المدمجة (Join سريع بين الأسعار والمشاعر)
         query_results = db.query(models.Candle, models.Sentiment).join(
             models.Sentiment, 
             (models.Candle.asset == models.Sentiment.asset) & 
@@ -141,10 +155,10 @@ def get_ai_prediction(symbol: str, db: Session = Depends(get_db)):
         if len(query_results) < 48:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Incomplete data for {symbol}. Needs 48 hours of both Price and Sentiment data."
+                detail=f"Incomplete data for {symbol}. Needs 48 hours of combined Price and Sentiment data."
             )
 
-        # تجهيز البيانات للموديل
+        # تجهيز الخصائص الـ 14 المطلوبة لموديل الذكاء الاصطناعي
         feature_data = []
         for candle, sentiment in query_results:
             feature_data.append({
@@ -161,20 +175,20 @@ def get_ai_prediction(symbol: str, db: Session = Depends(get_db)):
                 "has_news": sentiment.has_news
             })
         
-        # تحويل لـ DataFrame وترتيب زمنياً
+        # تحويل البيانات إلى DataFrame وترتيبها زمنياً لتغذية الموديل
         df_input = pd.DataFrame(feature_data).sort_values("timestamp")
 
-        # ترتيب الأعمدة الـ 14 الدقيق
+        # ترتيب الأعمدة الدقيق كما تم تدريب الموديل عليه
         feature_cols = [
             "open", "high", "low", "close", "volume", 
             "sent_count", "avg_sentiment", "pos_count", "neg_count", "neu_count", 
             "pos_ratio", "neg_ratio", "neu_ratio", "has_news"
         ]
 
-        # تنفيذ التوقع
+        # تنفيذ عملية التوقع عبر محرك الاستدلال (Inference Engine)
         prediction = inference_engine.predict(df_input[feature_cols])
 
-        # تجهيز نتائج الرسم البياني المستقبلي
+        # تجهيز مخرجات التوقع لـ 5 ساعات قادمة لعرضها في واجهة React
         future_results = []
         last_price = df_input["close"].iloc[-1]
         
@@ -190,5 +204,5 @@ def get_ai_prediction(symbol: str, db: Session = Depends(get_db)):
         return future_results
 
     except Exception as e:
-        print(f"Prediction Error: {str(e)}")
+        print(f"Prediction Error for {symbol}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI Engine Error: {str(e)}")
