@@ -1,11 +1,8 @@
-"""
-تكامل النظام: هذا الكود يربط بين قاعدة بيانات PostgreSQL وخوارزميات التوقع في الباك إيند.
-Docstring for crypto-predict.backend.app.routers.prices
-"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import pandas as pd
+import io
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 
@@ -19,7 +16,6 @@ router = APIRouter(prefix="/prices", tags=["Prices"])
 
 # ==========================================
 # 1. تعريف شكل البيانات المدخلة (Schemas)
-# وضعناه في الأعلى ليتم التعرف عليه من قبل جميع الدوال بالأسفل
 # ==========================================
 class MarketDataInput(BaseModel):
     symbol: str
@@ -62,147 +58,123 @@ def get_top_assets(db: Session = Depends(get_db)):
 # مسار الشمعات التاريخية (لعرض الرسم البياني التاريخي OHLC)
 @router.get("/{symbol}")
 def get_historical_ohlcv(symbol: str, db: Session = Depends(get_db)):
-    # تحويل الرمز إلى حروف صغيرة لضمان المطابقة مع قاعدة البيانات PostgreSQL
     target_asset = symbol.lower()
-    
     data = db.query(models.Candle).filter(
         models.Candle.asset == target_asset
     ).order_by(models.Candle.timestamp.desc()).limit(150).all()
     
     if not data:
-        # رسالة خطأ واضحة في حال عدم وجود بيانات للعملة المحددة
         raise HTTPException(status_code=404, detail=f"No data found for {symbol} in candle_ohlcv table.")
 
     return sorted([
-        {
-            "x": c.timestamp,
-            "y": [c.open, c.high, c.low, c.close]
-        } for c in data
+        {"x": c.timestamp, "y": [c.open, c.high, c.low, c.close]} for c in data
     ], key=lambda x: x['x'])
 
 # ==========================================
-# 3. مسارات الإدارة (Admin) - إضافة وتعديل البيانات
+# 3. مسارات الإدارة (Admin) - الرفع الجماعي والإضافة اليدوية
 # ==========================================
 
-# مسار يسمح للمسؤول (Admin) بإضافة سجل جديد يدوياً لتعزيز دقة التوقع
-@router.post("/add-data")
-def add_market_data(data: MarketDataInput, db: Session = Depends(get_db)):
+# ميزة جديدة: الرفع الجماعي عبر ملف CSV
+@router.post("/upload-csv")
+async def upload_csv_data(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    هذا المسار مخصص للأدمن فقط لإضافة بيانات السوق والمشاعر يدوياً.
-    يتم تخزين البيانات في قاعدة بيانات PostgreSQL لتدريب الموديل وتحسين التوقعات.
+    هذا المسار مخصص للأدمن لرفع آلاف السجلات التاريخية دفعة واحدة.
+    يقوم بمعالجة الملف باستخدام Pandas وحفظه في قاعدة البيانات بكفاءة عالية.
     """
     try:
-        # ملاحظة للمناقشة: هنا يمكن إضافة فحص الـ role من خلال الـ Context أو Token
-        # if current_user.role != "admin": raise HTTPException(status_code=403)
+        # قراءة محتوى الملف المرفوع وتحويله إلى DataFrame
+        content = await file.read()
+        df = pd.read_csv(io.BytesIO(content))
 
+        # التحقق من وجود الأعمدة السبعة الأساسية المطلوبة للشموع
+        required_cols = ['asset', 'timestamp', 'open', 'high', 'low', 'close', 'volume']
+        if not all(col in df.columns for col in required_cols):
+            raise HTTPException(status_code=400, detail="The CSV file is missing required columns.")
+
+        # تحويل البيانات إلى كائنات SQLAlchemy (Bulk Mapping)
+        new_candles = []
+        for _, row in df.iterrows():
+            new_candles.append(models.Candle(
+                asset=str(row['asset']).lower(),
+                timestamp=pd.to_datetime(row['timestamp']),
+                open=float(row['open']),
+                high=float(row['high']),
+                low=float(row['low']),
+                close=float(row['close']),
+                volume=float(row['volume'])
+            ))
+
+        # استخدام bulk_save_objects لتسريع عملية الحفظ في قاعدة البيانات
+        db.bulk_save_objects(new_candles)
+        db.commit()
+
+        return {"status": "success", "message": f"Successfully imported {len(new_candles)} records."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Bulk Import Error: {str(e)}")
+
+# مسار إضافة سجل واحد يدوياً (للمحاكاة)
+@router.post("/add-data")
+def add_market_data(data: MarketDataInput, db: Session = Depends(get_db)):
+    try:
         now_ts = datetime.now()
-        
-        # إضافة سجل السعر لجدول الشموع
         new_candle = models.Candle(
-            asset=data.symbol.lower(),
-            timestamp=now_ts,
+            asset=data.symbol.lower(), timestamp=now_ts,
             open=data.open, high=data.high, low=data.low,
             close=data.close, volume=data.volume
         )
-        
-        # إضافة سجل المشاعر (Sentiment) لتعزيز التحليل الهجين
         new_sentiment = models.Sentiment(
-            asset=data.symbol.lower(),
-            timestamp=now_ts,
-            avg_sentiment=data.avg_sentiment,
-            sent_count=data.sent_count,
-            pos_count=data.pos_count,
-            neg_count=data.neg_count,
-            neu_count=data.neu_count,
-            pos_ratio=data.pos_ratio,
-            neg_ratio=data.neg_ratio,
-            neu_ratio=data.neu_ratio,
+            asset=data.symbol.lower(), timestamp=now_ts,
+            avg_sentiment=data.avg_sentiment, sent_count=data.sent_count,
+            pos_count=data.pos_count, neg_count=data.neg_count, neu_count=data.neu_count,
+            pos_ratio=data.pos_ratio, neg_ratio=data.neg_ratio, neu_ratio=data.neu_ratio,
             has_news=data.has_news
         )
-        
-        db.add(new_candle)
-        db.add(new_sentiment)
+        db.add(new_candle); db.add(new_sentiment)
         db.commit()
-        
-        return {"status": "success", "message": f"New record added for {data.symbol} at {now_ts}"}
+        return {"status": "success", "message": f"New record added for {data.symbol}"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 # ==========================================
-# 4. مسار التوقع المتقدم (AI Predict) - محرك الذكاء الاصطناعي
+# 4. مسار التوقع المتقدم (AI Predict)
 # ==========================================
 
 @router.get("/predict/{symbol}")
 def get_ai_prediction(symbol: str, db: Session = Depends(get_db)):
-    """
-    يقوم هذا المسار بدمج بيانات الأسعار مع تحليل المشاعر (Sentiment Analysis)
-    لإعطاء توقعات دقيقة باستخدام خوارزميات مثل LSTM أو XGBoost.
-    """
     try:
-        # تحويل الرمز لضمان التطابق مع البيانات المخزنة
         target_asset = symbol.lower()
-
-        # جلب آخر 48 ساعة من البيانات المدمجة (Join سريع بين الأسعار والمشاعر)
         query_results = db.query(models.Candle, models.Sentiment).join(
             models.Sentiment, 
             (models.Candle.asset == models.Sentiment.asset) & 
             (models.Candle.timestamp == models.Sentiment.timestamp)
-        ).filter(
-            models.Candle.asset == target_asset
-        ).order_by(models.Candle.timestamp.desc()).limit(48).all()
+        ).filter(models.Candle.asset == target_asset).order_by(models.Candle.timestamp.desc()).limit(48).all()
 
         if len(query_results) < 48:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Incomplete data for {symbol}. Needs 48 hours of combined Price and Sentiment data."
-            )
+            raise HTTPException(status_code=400, detail=f"Insufficient data for {symbol}.")
 
-        # تجهيز الخصائص الـ 14 المطلوبة لموديل الذكاء الاصطناعي
         feature_data = []
         for candle, sentiment in query_results:
             feature_data.append({
-                "timestamp": candle.timestamp,
-                "open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close, "volume": candle.volume,
-                "sent_count": sentiment.sent_count,
-                "avg_sentiment": sentiment.avg_sentiment,
-                "pos_count": sentiment.pos_count,
-                "neg_count": sentiment.neg_count,
-                "neu_count": sentiment.neu_count,
-                "pos_ratio": sentiment.pos_ratio,
-                "neg_ratio": sentiment.neg_ratio,
-                "neu_ratio": sentiment.neu_ratio,
-                "has_news": sentiment.has_news
+                "timestamp": candle.timestamp, "open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close, "volume": candle.volume,
+                "sent_count": sentiment.sent_count, "avg_sentiment": sentiment.avg_sentiment, "pos_count": sentiment.pos_count, "neg_count": sentiment.neg_count,
+                "neu_count": sentiment.neu_count, "pos_ratio": sentiment.pos_ratio, "neg_ratio": sentiment.neg_ratio, "neu_ratio": sentiment.neu_ratio, "has_news": sentiment.has_news
             })
         
-        # تحويل البيانات إلى DataFrame وترتيبها زمنياً لتغذية الموديل
         df_input = pd.DataFrame(feature_data).sort_values("timestamp")
+        feature_cols = ["open", "high", "low", "close", "volume", "sent_count", "avg_sentiment", "pos_count", "neg_count", "neu_count", "pos_ratio", "neg_ratio", "neu_ratio", "has_news"]
 
-        # ترتيب الأعمدة الدقيق كما تم تدريب الموديل عليه
-        feature_cols = [
-            "open", "high", "low", "close", "volume", 
-            "sent_count", "avg_sentiment", "pos_count", "neg_count", "neu_count", 
-            "pos_ratio", "neg_ratio", "neu_ratio", "has_news"
-        ]
-
-        # تنفيذ عملية التوقع عبر محرك الاستدلال (Inference Engine)
         prediction = inference_engine.predict(df_input[feature_cols])
 
-        # تجهيز مخرجات التوقع لـ 5 ساعات قادمة لعرضها في واجهة React
         future_results = []
         last_price = df_input["close"].iloc[-1]
-        
         for i in range(1, 6):
             predicted_val = last_price * (1 + (prediction["predicted_return"] * i / 5))
             future_results.append({
                 "timestamp": (datetime.now() + timedelta(hours=i)).isoformat(),
-                "predicted_value": round(predicted_val, 2),
-                "trend": prediction["trend"],
-                "confidence": prediction["confidence"]
+                "predicted_value": round(predicted_val, 2), "trend": prediction["trend"], "confidence": prediction["confidence"]
             })
-
         return future_results
-
     except Exception as e:
-        print(f"Prediction Error for {symbol}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI Engine Error: {str(e)}")
