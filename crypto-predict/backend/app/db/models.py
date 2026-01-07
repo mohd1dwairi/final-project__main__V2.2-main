@@ -59,3 +59,12 @@ class Prediction(Base):
     created_by_user_id = Column(Integer, ForeignKey("users.user_id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     creator = relationship("User", back_populates="predictions")
+
+# أضف هذا الكلاس إلى ملف models.py
+class ModelLog(Base):
+    __tablename__ = "model_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    trained_at = Column(DateTime, default=func.now()) # وقت تنفيذ العملية
+    records_count = Column(Integer, default=0)         # عدد السجلات التي تدرب عليها الموديل
+    status = Column(String(50))                        # حالة العملية: "Success" أو "Failed"
+    error_message = Column(String(500), nullable=True) # رسالة الخطأ في حال الفشل
